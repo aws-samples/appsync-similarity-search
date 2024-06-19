@@ -1,7 +1,3 @@
-// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
-// SPDX-License-Identifier: MIT-0
-
-
 import * as cdk from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import * as rds from 'aws-cdk-lib/aws-rds';
@@ -53,8 +49,8 @@ export class DatabaseStack extends cdk.Stack {
 
     // output the cluster arn and secret arn
     new cdk.CfnOutput(this, 'ClusterArn', { value: this.clusterArn });
-    new cdk.CfnOutput(this, 'ClusterId', { value: this.clusterIdentifier });
-    new cdk.CfnOutput(this, 'SecretArn', { value: this.secretArn });
+    new cdk.CfnOutput(this, 'ClusterId', { value: this.clusterIdentifier,  exportName: "RDSStack-ClusterId" });
+    new cdk.CfnOutput(this, 'SecretArn', { value: this.secretArn, exportName: "RDSStack-SecretArn" });
     new cdk.CfnOutput(this, 'DatabaseName', { value: this.databaseName });
 
     

@@ -1,13 +1,11 @@
-// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
-// SPDX-License-Identifier: MIT-0
-
-
 import * as cdk from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
 import * as path from 'path';
 import * as iam from 'aws-cdk-lib/aws-iam';
+import * as tasks from 'aws-cdk-lib/aws-stepfunctions-tasks';
+import * as sfn from 'aws-cdk-lib/aws-stepfunctions';
 
 // create props for the stack
 export interface ImportDataStackProps extends cdk.StackProps {
@@ -22,13 +20,14 @@ export class ImportDataStack extends cdk.Stack {
       super(scope, id, props);
 
       const csv_name= 'amazon.csv'
-      // upload the csv data into s3 asset
-      const salesData = new cdk.aws_s3_assets.Asset(this, 'SalesData', {
-          path: path.join(__dirname, `../assets/data/${csv_name}`),
+      // create an S3 Asset to store the csv
+      const salesData = new cdk.aws_s3_assets.Asset(this, 'salesData', {
+        path: path.join(__dirname, '../assets/data', csv_name),
       });
-  
+      // output the bucket name and url
+      new cdk.CfnOutput(this, 'BucketName', { value: salesData.s3BucketName });
+      new cdk.CfnOutput(this, 'ObjectKey', { value: salesData.s3ObjectKey });
       
-
       // create an ECS fargate cluster
       const cluster = new ecs.Cluster(this, 'ImportEmbeddingsDataCluster', {
         vpc: props.vpc
@@ -41,7 +40,7 @@ export class ImportDataStack extends cdk.Stack {
         logGroupName: 'GenEmbedLogGroup'
       });
 
-      // add a task definition for the generating Embeddings
+      // create a task definition for reading data from s3 and generating Embeddings
       const genEmbedTaskDefinition = new ecs.FargateTaskDefinition(this, 'GenerateEmbeddingsTaskDefinition', {
         memoryLimitMiB: 4096,
         cpu: 2048,
@@ -73,8 +72,6 @@ export class ImportDataStack extends cdk.Stack {
         resources: ["*"],
       }));
       
-      // add task definition for importing data
-      
       // create a log group
       const importDatalogGroup = new cdk.aws_logs.LogGroup(this, 'importDatalogGroup', {
         removalPolicy: cdk.RemovalPolicy.DESTROY,
@@ -82,6 +79,7 @@ export class ImportDataStack extends cdk.Stack {
         logGroupName: 'importDatalogGroup'
       });
 
+      // create a task definition for importing data from s3 into the database
       const importDataTaskDefinition = new ecs.FargateTaskDefinition(this, 'ImportDataTaskDefinition', {
         memoryLimitMiB: 4096,
         cpu: 2048,
@@ -119,7 +117,35 @@ export class ImportDataStack extends cdk.Stack {
         actions: ['secretsmanager:*'],
         resources: [props.secretArn],
       }));
+
+      const runGenEmbedTask = new tasks.EcsRunTask(this, 'RunFargateGen', {
+        integrationPattern: sfn.IntegrationPattern.RUN_JOB,
+        cluster,
+        taskDefinition:genEmbedTaskDefinition,
+        launchTarget: new tasks.EcsFargateLaunchTarget(),
+        propagatedTagSource: ecs.PropagatedTagSource.TASK_DEFINITION,
+      });
+
+      // create an ecs task for importData
+      const runImportDataTask = new tasks.EcsRunTask(this, 'RunFargateImportData', {
+        integrationPattern: sfn.IntegrationPattern.RUN_JOB,
+        cluster,
+        taskDefinition:importDataTaskDefinition,
+        launchTarget: new tasks.EcsFargateLaunchTarget(),
+        propagatedTagSource: ecs.PropagatedTagSource.TASK_DEFINITION,
+      });
+
+      const wait = new sfn.Wait(this, 'Wait', {
+        time: sfn.WaitTime.secondsPath('$.waitSeconds'),
+      });
+
+      const importDataFunction = new sfn.StateMachine(this, 'StateMachine', {
+        definition: runGenEmbedTask
+          .next(runImportDataTask)
+      });
       
+      // output the state function arn
+      new cdk.CfnOutput(this, 'StateFunctionArn', { value: importDataFunction.stateMachineArn });
     
   }
 }
