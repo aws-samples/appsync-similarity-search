@@ -35,10 +35,14 @@ This sample implements a CDK stack which consists of a database stack implemente
 
 ## How to use
 
-Intall the packages - 'npm install'
+Install the packages - from the root directory execute
+```
+npm install
+```
 
 Boostrap the cdk using `cdk bootstrap`, make sure you are running Node<21.0.0
 
+### Deploy the database
 Deploy the database stack using
 ```
 cdk deploy RDSStack
@@ -54,24 +58,43 @@ After you deploy the cluster, you need to enable the PGVector extension. Using t
 CREATE EXTENSION IF NOT EXISTS vector;
 ```
 
+### Import Data
 Deploy the import data stack using
 ```
 cdk deploy ImportDataStack
 ```
-This task requires docker desktop to be running as it builds a docker image to run the import task of ECS.
+This task requires docker desktop to be running as it builds a docker image to run the import task of ECS. One of the outputs of the stack is an arn for a step function state machine.
 
-After this stack is deployed, navigate to the ECS console and execute the tasks for generating embeddings. This will read the product data from s3 and create a new file with necessary embeddings. Once completed, execture the import data ECS task - this imports the data with embeddings into the RDS PostGresSQL database.
-
-Check if the data is populated within RDS using the query editor to list records in the "product_info" table.
-
-Deploy the AppSycn middleware stack using
+After this stack is deployed, execute the stepfunction
 ```
-cdk deploy AppsyncStack
+aws stepfunctions start-execution --state-machine-arn <STATE-MACHINE-ARN>
+```
+The step function executes two ecs tasks. The first one reads the product data from s3 and creates a new file with necessary embeddings. A second task imports the data with embeddings into the RDS PostGresSQL database.
+
+Wait for the step function to complete. You can check the state in the aws console or from the command line by executing the following
+```
+aws stepfunctions describe-execution --execution-arn <EXECUTION-ARN>
 ```
 
-After completing, you can use the online appsycn editor to query the database for similarity.
+Check if the data is populated within RDS using the [RDS query editor](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/query-editor.html#query-editor.running) to list records in the "product_info" table.
 
-![Appsync Queries](images/appsync_queries.png "Appsync Queries")
+## Deploy the middleware from an Amplify Gen2 project
 
+Navigate to the folder lib/amp-client. You can deploy the AppSync middleware that connects to the database using this stack. We will create a sandbox environment to test this by running the following
 
+```
+npm install
+npx ampx sandbox --debug true
+```
+The above command will deploy the necessary backend for connecting to the database. 
 
+## Run the client and connect to the backend
+
+Run the amplify webserver client by executing
+```
+npm run dev
+```
+
+and navigate to the output url in a browser.
+
+<img src="images/appsync-client.png" alt="drawing" width="600"/>
