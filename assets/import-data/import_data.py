@@ -1,7 +1,3 @@
-# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
-# SPDX-License-Identifier: MIT-0
-
-
 import boto3
 import os
 import awswrangler as wr
@@ -92,7 +88,7 @@ def _generate_parameter_sets(df: pd.DataFrame) -> list[list[dict[str, Any]]]:
 
     return parameter_sets
 
-print("In import data code")
+print("Importing data..")
 data_client = boto3.client('rds-data')
 
 s3_bucket_name = os.environ.get('BUCKET_NAME')
@@ -117,10 +113,10 @@ secret_arn = os.environ.get('SECRET_ARN')
 
 # create the table
 table_name = "product_info"
-sql_statement = f"CREATE TABLE IF NOT EXISTS {table_name} 
+sql_statement = f'''CREATE TABLE IF NOT EXISTS {table_name} 
 (product_id varchar, product_name varchar, category varchar,
 discounted_price varchar, actual_price varchar, discount_percentage varchar,
-rating varchar, rating_count varchar, about_product varchar, embedding vector);"
+rating varchar, rating_count varchar, about_product varchar, embedding vector);'''
 result = data_client.execute_statement(
     resourceArn=cluster_arn,
     secretArn=secret_arn,
@@ -130,23 +126,25 @@ result = data_client.execute_statement(
 print("created the table", result)
 
 # write data to the table from the data frame
-sql_statement = f"INSERT INTO {table_name} (product_id, product_name, category, 
+sql_statement = f'''INSERT INTO {table_name} (product_id, product_name, category, 
 discounted_price, actual_price, discount_percentage, rating, 
 rating_count, about_product, embedding) 
 VALUES (:product_id, :product_name, :category, :discounted_price, 
 :actual_price, :discount_percentage, :rating, :rating_count, 
-:about_product, :embedding::vector);"
+:about_product, :embedding::vector);'''
 # loop through the parameter sets and write to the table
 for parameters in parameterSets:
-    result = data_client.execute_statement(
-        database=db_name,
-        resourceArn=cluster_arn,
-        secretArn=secret_arn,
-        sql=sql_statement,
-        parameters=parameters
-    )
-    time.sleep(0.1)  # sleep for a bit to avoid throttling errors 
-    
-print("wrote the data", result)
+    try:
+        result = data_client.execute_statement(
+            database=db_name,
+            resourceArn=cluster_arn,
+            secretArn=secret_arn,
+            sql=sql_statement,
+            parameters=parameters
+        )
+        print("wrote the data", result)
+        time.sleep(0.1)  # sleep for a bit to avoid throttling errors 
+    except:
+        print("error writing to the table", parameters)    
 
 exit(0);    

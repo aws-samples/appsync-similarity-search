@@ -1,7 +1,3 @@
-# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
-# SPDX-License-Identifier: MIT-0
-
-
 import boto3
 import os
 from langchain_community.embeddings import BedrockEmbeddings 
