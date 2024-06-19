@@ -6,7 +6,6 @@ import 'source-map-support/register';
 import * as cdk from 'aws-cdk-lib';
 import { DatabaseStack } from '../lib/database-stack';
 import { ImportDataStack } from '../lib/import-data-stack';
-import { AppsyncStack } from '../lib/appsync-middleware-stack';
 
 const app = new cdk.App();
 const rdsStack = new DatabaseStack(app, 'RDSStack', {
@@ -19,10 +18,3 @@ const importDataStack = new ImportDataStack(app, 'ImportDataStack', {
   vpc: rdsStack.vpc
 });
 
-// create the appsync stack
-new AppsyncStack(app, 'AppsyncStack', {
-  clusterArn:rdsStack.clusterArn,
-  clusterIdentifier:rdsStack.clusterIdentifier,
-  secretArn: rdsStack.secretArn,
-  databaseName: rdsStack.databaseName,
-});
