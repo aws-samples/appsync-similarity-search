@@ -140,8 +140,10 @@ export class ImportDataStack extends cdk.Stack {
       });
 
       const importDataFunction = new sfn.StateMachine(this, 'StateMachine', {
-        definition: runGenEmbedTask
-          .next(runImportDataTask)
+        definitionBody: sfn.DefinitionBody.fromChainable(
+          runGenEmbedTask
+            .next(runImportDataTask)
+        )
       });
       
       // output the state function arn
