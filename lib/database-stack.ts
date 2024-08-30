@@ -2,9 +2,8 @@ import * as cdk from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import * as rds from 'aws-cdk-lib/aws-rds';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
-import * as appsync from 'aws-cdk-lib/aws-appsync';
-import * as lambda from 'aws-cdk-lib/aws-lambda'; 
-import * as path from 'path';
+import { NagSuppressions } from 'cdk-nag';
+
 
 export class DatabaseStack extends cdk.Stack {
   public readonly clusterArn:string;
@@ -33,6 +32,9 @@ export class DatabaseStack extends cdk.Stack {
     const cluster = new rds.DatabaseCluster(this, 'SimSearchCluster', {
       engine: rds.DatabaseClusterEngine.auroraPostgres({ version: rds.AuroraPostgresEngineVersion.VER_15_3 }),
       defaultDatabaseName: this.databaseName,
+      storageEncrypted:true,
+      iamAuthentication:true,
+      deletionProtection:true,
       credentials: rds.Credentials.fromSecret(dbSecret),
       writer: rds.ClusterInstance.serverlessV2('writer', {
         publiclyAccessible: true,
@@ -53,6 +55,21 @@ export class DatabaseStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'SecretArn', { value: this.secretArn, exportName: "RDSStack-SecretArn" });
     new cdk.CfnOutput(this, 'DatabaseName', { value: this.databaseName });
 
-    
+    NagSuppressions.addStackSuppressions(this,
+      [
+        { 
+          id: 'AwsSolutions-RDS6', 
+          reason: 'Data API calls are used from AppSync into a private subnet' 
+        },
+        {
+          id: 'AwsSolutions-VPC7', 
+          reason: 'Flow log not enabled to avoid un-necessary costs', 
+        },
+        {
+          id: 'AwsSolutions-SMG4', 
+          reason: 'Rotation not enabled', 
+        },
+      ]
+    );
   }
 }

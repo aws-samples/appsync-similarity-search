@@ -6,6 +6,8 @@ import * as path from 'path';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as tasks from 'aws-cdk-lib/aws-stepfunctions-tasks';
 import * as sfn from 'aws-cdk-lib/aws-stepfunctions';
+import * as logs from 'aws-cdk-lib/aws-logs';
+import { NagSuppressions } from 'cdk-nag';
 
 // create props for the stack
 export interface ImportDataStackProps extends cdk.StackProps {
@@ -30,7 +32,8 @@ export class ImportDataStack extends cdk.Stack {
       
       // create an ECS fargate cluster
       const cluster = new ecs.Cluster(this, 'ImportEmbeddingsDataCluster', {
-        vpc: props.vpc
+        vpc: props.vpc,
+        containerInsights:true
       });
 
       // create a log group
@@ -63,13 +66,16 @@ export class ImportDataStack extends cdk.Stack {
         },
       });
 
-      salesData.grantRead(genEmbedTaskDefinition.taskRole);
+      // salesData.grantRead(genEmbedTaskDefinition.taskRole);
       // grant write permissions to ecs task to the asset bucket
       const assetBucket = cdk.aws_s3.Bucket.fromBucketName(this, "assetBucket", salesData.s3BucketName);
-      assetBucket.grantWrite(genEmbedTaskDefinition.taskRole);
+      // grant read permissions to ecs task to the asset bucket
+      //assetBucket.grantRead(genEmbedTaskDefinition.taskRole);
+      // grant write permissions to ecs task to the asset bucket
+      //assetBucket.grantWrite(genEmbedTaskDefinition.taskRole);
       genEmbedTaskDefinition.taskRole.addToPrincipalPolicy(new iam.PolicyStatement({
-        actions: ['bedrock:*'],
-        resources: ["*"],
+        actions: ['bedrock:InvokeModel'],
+        resources: [`arn:aws:bedrock:${this.region}:${this.account}:foundation-model/amazon.titan-embed-text-v2:0`],
       }));
       
       // create a log group
@@ -105,16 +111,17 @@ export class ImportDataStack extends cdk.Stack {
         },
       });
 
+      // grant write permissions to ecs task to the asset bucket
       salesData.grantRead(importDataTaskDefinition.taskRole);
       // grant write permissions to ecs task to the asset bucket
-      assetBucket.grantWrite(importDataTaskDefinition.taskRole);
+      // assetBucket.grantWrite(importDataTaskDefinition.taskRole);
       // add a managed RDS data policy to the task
       importDataTaskDefinition.taskRole.addToPrincipalPolicy(new iam.PolicyStatement({
-        actions: ['rds:*','rds-data:*'],
+        actions: ['rds-data:ExecuteStatement'],
         resources: [props.clusterArn],
       }));
       importDataTaskDefinition.taskRole.addToPrincipalPolicy(new iam.PolicyStatement({
-        actions: ['secretsmanager:*'],
+        actions: ['secretsmanager:GetSecretValue','secretsmanager:ListSecrets'],
         resources: [props.secretArn],
       }));
 
@@ -135,19 +142,38 @@ export class ImportDataStack extends cdk.Stack {
         propagatedTagSource: ecs.PropagatedTagSource.TASK_DEFINITION,
       });
 
-      const wait = new sfn.Wait(this, 'Wait', {
-        time: sfn.WaitTime.secondsPath('$.waitSeconds'),
-      });
+      const stpFnlogGroup = new logs.LogGroup(this, 'stpFnlogGroup');
 
       const importDataFunction = new sfn.StateMachine(this, 'StateMachine', {
         definitionBody: sfn.DefinitionBody.fromChainable(
           runGenEmbedTask
             .next(runImportDataTask)
-        )
+        ),
+        tracingEnabled:true,
+        logs: {
+          destination: stpFnlogGroup,
+          level: sfn.LogLevel.ALL,
+        },
       });
       
       // output the state function arn
       new cdk.CfnOutput(this, 'StateFunctionArn', { value: importDataFunction.stateMachineArn });
+
+      NagSuppressions.addStackSuppressions(this,
+        [{ id: 'AwsSolutions-ECS2', reason: 'Need to specify S3 bucket name and url to access in task' }]
+      );
+
+      NagSuppressions.addStackSuppressions(this,
+        [{ 
+          id: 'AwsSolutions-IAM5', 
+          reason: 'Specific rule triggered by cdk code', 
+        },
+        {
+          id: 'AwsSolutions-VPC7', 
+          reason: 'Flow log not enabled to avoid un-necessary costs', 
+        }
+        ]
+      );
     
   }
 }

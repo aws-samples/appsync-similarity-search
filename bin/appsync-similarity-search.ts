@@ -6,6 +6,8 @@ import 'source-map-support/register';
 import * as cdk from 'aws-cdk-lib';
 import { DatabaseStack } from '../lib/database-stack';
 import { ImportDataStack } from '../lib/import-data-stack';
+import {App, Aspects } from 'aws-cdk-lib'
+import { AwsSolutionsChecks } from 'cdk-nag';
 
 const app = new cdk.App();
 const rdsStack = new DatabaseStack(app, 'RDSStack', {
@@ -17,4 +19,6 @@ const importDataStack = new ImportDataStack(app, 'ImportDataStack', {
   databaseName: rdsStack.databaseName,
   vpc: rdsStack.vpc
 });
+
+Aspects.of(app).add(new AwsSolutionsChecks());
 
