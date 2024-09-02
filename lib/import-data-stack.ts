@@ -130,7 +130,8 @@ export class ImportDataStack extends cdk.Stack {
         ],
         effect: iam.Effect.ALLOW,
         resources: [
-          assetBucket.bucketArn
+          assetBucket.bucketArn,
+          `${assetBucket.bucketArn}/*`
         ]
       }));
       
