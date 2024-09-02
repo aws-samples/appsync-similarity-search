@@ -66,13 +66,22 @@ export class ImportDataStack extends cdk.Stack {
         },
       });
 
-      // salesData.grantRead(genEmbedTaskDefinition.taskRole);
       // grant write permissions to ecs task to the asset bucket
       const assetBucket = cdk.aws_s3.Bucket.fromBucketName(this, "assetBucket", salesData.s3BucketName);
-      // grant read permissions to ecs task to the asset bucket
-      //assetBucket.grantRead(genEmbedTaskDefinition.taskRole);
-      // grant write permissions to ecs task to the asset bucket
-      //assetBucket.grantWrite(genEmbedTaskDefinition.taskRole);
+      // grant read and write permissions to ecs task to the asset bucket
+      genEmbedTaskDefinition.taskRole.addToPrincipalPolicy(new iam.PolicyStatement({
+        actions: [
+          's3:GetObject',
+          's3:ListBucket',
+          's3:PutObject',
+          's3:DeleteObject'
+        ],
+        effect: iam.Effect.ALLOW,
+        resources: [
+          assetBucket.bucketArn
+        ]
+      }));
+      
       genEmbedTaskDefinition.taskRole.addToPrincipalPolicy(new iam.PolicyStatement({
         actions: ['bedrock:InvokeModel'],
         resources: [`arn:aws:bedrock:${this.region}:${this.account}:foundation-model/amazon.titan-embed-text-v2:0`],
@@ -111,11 +120,19 @@ export class ImportDataStack extends cdk.Stack {
         },
       });
 
-      // grant write permissions to ecs task to the asset bucket
-      salesData.grantRead(importDataTaskDefinition.taskRole);
-      // grant write permissions to ecs task to the asset bucket
-      // assetBucket.grantWrite(importDataTaskDefinition.taskRole);
-      // add a managed RDS data policy to the task
+      
+      // grant read and write permissions to ecs task to the asset bucket
+      importDataTaskDefinition.taskRole.addToPrincipalPolicy(new iam.PolicyStatement({
+        actions: [
+          's3:GetObject',
+          's3:ListBucket',
+        ],
+        effect: iam.Effect.ALLOW,
+        resources: [
+          assetBucket.bucketArn
+        ]
+      }));
+      
       importDataTaskDefinition.taskRole.addToPrincipalPolicy(new iam.PolicyStatement({
         actions: ['rds-data:ExecuteStatement'],
         resources: [props.clusterArn],
@@ -160,18 +177,11 @@ export class ImportDataStack extends cdk.Stack {
       new cdk.CfnOutput(this, 'StateFunctionArn', { value: importDataFunction.stateMachineArn });
 
       NagSuppressions.addStackSuppressions(this,
-        [{ id: 'AwsSolutions-ECS2', reason: 'Need to specify S3 bucket name and url to access in task' }]
-      );
-
-      NagSuppressions.addStackSuppressions(this,
-        [{ 
-          id: 'AwsSolutions-IAM5', 
-          reason: 'Specific rule triggered by cdk code', 
-        },
-        {
-          id: 'AwsSolutions-VPC7', 
-          reason: 'Flow log not enabled to avoid un-necessary costs', 
-        }
+        
+        [
+          { id: 'AwsSolutions-ECS2', reason: 'S3 bucket name and url passed are dynamic and caoonot be stored in key stores' },
+          { id: 'AwsSolutions-IAM5', reason: 'CDK used AWS Managed policies which have *'},
+          { id: 'AwsSolutions-VPC7', reason: 'Flow log not enabled to avoid un-necessary costs'}
         ]
       );
     
