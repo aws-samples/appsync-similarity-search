@@ -57,10 +57,6 @@ export class DatabaseStack extends cdk.Stack {
 
     NagSuppressions.addStackSuppressions(this,
       [
-        { 
-          id: 'AwsSolutions-RDS6', 
-          reason: 'Data API calls are used from AppSync into a private subnet' 
-        },
         {
           id: 'AwsSolutions-VPC7', 
           reason: 'Flow log not enabled to avoid un-necessary costs', 
