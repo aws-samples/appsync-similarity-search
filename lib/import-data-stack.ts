@@ -78,13 +78,14 @@ export class ImportDataStack extends cdk.Stack {
         ],
         effect: iam.Effect.ALLOW,
         resources: [
-          assetBucket.bucketArn
+          assetBucket.bucketArn,
+          `${assetBucket.bucketArn}/*`
         ]
       }));
       
       genEmbedTaskDefinition.taskRole.addToPrincipalPolicy(new iam.PolicyStatement({
         actions: ['bedrock:InvokeModel'],
-        resources: [`arn:aws:bedrock:${this.region}:${this.account}:foundation-model/amazon.titan-embed-text-v2:0`],
+        resources: [`arn:aws:bedrock:${this.region}::foundation-model/amazon.titan-embed-text-v2:0`],
       }));
       
       // create a log group
