@@ -159,7 +159,6 @@ export class ImportDataStack extends cdk.Stack {
       new cdk.CfnOutput(this, 'StateFunctionArn', { value: importDataStepFunction.stateMachineArn });
 
       NagSuppressions.addStackSuppressions(this,
-        
         [
           { id: 'AwsSolutions-SF1', reason: 'Not logging all Step Function events'},
           { id: 'AwsSolutions-SF2', reason: 'Not enabling X-ray tracing in Step Function'},
