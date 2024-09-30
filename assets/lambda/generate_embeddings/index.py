@@ -3,7 +3,7 @@ import os
 import awswrangler as wr
 import awswrangler.pandas as pd
 from langchain_community.embeddings import BedrockEmbeddings 
-from langchain_community.llms import Bedrock
+from langchain_aws import BedrockLLM
 
 def handler(event, context):
     #connect to the Model using bedrock API
