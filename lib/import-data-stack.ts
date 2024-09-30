@@ -23,7 +23,7 @@ export class ImportDataStack extends cdk.Stack {
 
       const csv_name= 'amazon.csv'
       const embeddings_csv_name = 'embeddings.csv'
-      // create an S3 Asset to store the csv
+      // create an S3 Asset to store the csv with a specific name
       const salesData = new cdk.aws_s3_assets.Asset(this, 'salesData', {
         path: path.join(__dirname, '../assets/data', csv_name),
       });
@@ -58,6 +58,7 @@ export class ImportDataStack extends cdk.Stack {
           assetBucket.bucketArn,
           `${assetBucket.bucketArn}/${csv_name}`,
           `${assetBucket.bucketArn}/${embeddings_csv_name}`,
+          `${assetBucket.bucketArn}/${salesData.s3ObjectKey}`,
         ],
       }));
       genEmbedLambdaIamRole.addToPolicy(new iam.PolicyStatement({
@@ -141,18 +142,18 @@ export class ImportDataStack extends cdk.Stack {
       const stateMachineRole = new iam.Role(this, 'StateMachineRole', {
         assumedBy: new iam.ServicePrincipal('states.amazonaws.com'),
       });
-      stateMachineRole.addToPolicy(new iam.PolicyStatement({
-        actions: ['lambda:InvokeFunction'],
-        resources: [generateEmbeddingsFunction.functionArn, lambdaImportFunction.functionArn],
-      }));
-      stateMachineRole.withoutPolicyUpdates();
 
       const importDataStepFunction = new sfn.StateMachine(this, 'StateMachine', {
-        role: stateMachineRole,
+        role: stateMachineRole.withoutPolicyUpdates(),
         definitionBody: sfn.DefinitionBody.fromChainable(
           runGenEmbedTask.next(runImportTask)
         ),
       });
+
+      stateMachineRole.addToPolicy(new iam.PolicyStatement({
+        actions: ['lambda:InvokeFunction'],
+        resources: [generateEmbeddingsFunction.functionArn, lambdaImportFunction.functionArn],
+      }));
       
       // output the state function arn
       new cdk.CfnOutput(this, 'StateFunctionArn', { value: importDataStepFunction.stateMachineArn });
@@ -160,7 +161,6 @@ export class ImportDataStack extends cdk.Stack {
       NagSuppressions.addStackSuppressions(this,
         
         [
-          { id: 'AwsSolutions-IAM5', reason: 'State Machine introduces a * to a couple of functions'},
           { id: 'AwsSolutions-SF1', reason: 'Not logging all Step Function events'},
           { id: 'AwsSolutions-SF2', reason: 'Not enabling X-ray tracing in Step Function'},
           { id: 'AwsSolutions-VPC7', reason: 'Flow log not enabled to avoid un-necessary costs'}
