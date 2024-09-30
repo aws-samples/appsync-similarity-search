@@ -22,96 +22,99 @@ export class ImportDataStack extends cdk.Stack {
       super(scope, id, props);
 
       const csv_name= 'amazon.csv'
+      const embeddings_csv_name = 'embeddings.csv'
       // create an S3 Asset to store the csv
       const salesData = new cdk.aws_s3_assets.Asset(this, 'salesData', {
         path: path.join(__dirname, '../assets/data', csv_name),
       });
+      // create the asset bucket
+      const assetBucket = cdk.aws_s3.Bucket.fromBucketName(this, "assetBucket", salesData.s3BucketName);
       // output the bucket name and url
       new cdk.CfnOutput(this, 'BucketName', { value: salesData.s3BucketName });
       new cdk.CfnOutput(this, 'ObjectKey', { value: salesData.s3ObjectKey });
-      
-      // create an ECS fargate cluster
-      const cluster = new ecs.Cluster(this, 'ImportEmbeddingsDataCluster', {
-        vpc: props.vpc,
-        containerInsights:true
-      });
 
-      // create a log group
-      const genEmbedlogGroup = new cdk.aws_logs.LogGroup(this, 'GenEmbedLogGroup', {
+      // create a log group for generate embed function
+      const genEmbedLambdaLogGroup = new logs.LogGroup(this, 'GenEmbedLambdaLogGroup', {
+        logGroupName: '/aws/lambda/generate_embeddings_function',
         removalPolicy: cdk.RemovalPolicy.DESTROY,
-        retention: cdk.aws_logs.RetentionDays.ONE_DAY,
-        logGroupName: 'GenEmbedLogGroup'
       });
-
-      // create a task definition for reading data from s3 and generating Embeddings
-      const genEmbedTaskDefinition = new ecs.FargateTaskDefinition(this, 'GenerateEmbeddingsTaskDefinition', {
-        memoryLimitMiB: 4096,
-        cpu: 2048,
-        runtimePlatform:{
-            cpuArchitecture: ecs.CpuArchitecture.X86_64,
-            operatingSystemFamily: ecs.OperatingSystemFamily.LINUX
-        }
+      
+      // create a lambda iam role for the generate embeddings function
+      const genEmbedLambdaIamRole = new iam.Role(this, 'GenEmbedLambdaIamRole', {
+        assumedBy: new iam.ServicePrincipal('lambda.amazonaws.com'),
       });
-      // add a container image to the task definition
-      const GenEmbedContainerImage = ecs.ContainerImage.fromAsset(path.join(__dirname, '../assets/generate-embeddings'));
-      genEmbedTaskDefinition.addContainer('GenerateEmbeddingsContainer', {
-        logging: ecs.LogDriver.awsLogs({
-          streamPrefix: 'GenerateEmbeddings',
-          logGroup:genEmbedlogGroup 
-        }),
-        image: GenEmbedContainerImage,
-        environment: {
-          'INPUT_BUCKET_URL': salesData.s3ObjectUrl,
-          'BUCKET_NAME': salesData.s3BucketName,
-        },
-      });
-
-      // grant write permissions to ecs task to the asset bucket
-      const assetBucket = cdk.aws_s3.Bucket.fromBucketName(this, "assetBucket", salesData.s3BucketName);
-      // grant read and write permissions to ecs task to the asset bucket
-      genEmbedTaskDefinition.taskRole.addToPrincipalPolicy(new iam.PolicyStatement({
+      genEmbedLambdaIamRole.addToPolicy(new iam.PolicyStatement({
+        actions: ['logs:CreateLogGroup', 'logs:CreateLogStream', 'logs:PutLogEvents'],
+        resources: [genEmbedLambdaLogGroup.logGroupArn],
+      }));
+      genEmbedLambdaIamRole.addToPolicy(new iam.PolicyStatement({
         actions: [
           's3:GetObject',
           's3:ListBucket',
           's3:PutObject',
           's3:DeleteObject'
         ],
-        effect: iam.Effect.ALLOW,
         resources: [
           assetBucket.bucketArn,
-          `${assetBucket.bucketArn}/*`
-        ]
+          `${assetBucket.bucketArn}/${csv_name}`,
+          `${assetBucket.bucketArn}/${embeddings_csv_name}`,
+        ],
       }));
-      
-      genEmbedTaskDefinition.taskRole.addToPrincipalPolicy(new iam.PolicyStatement({
+      genEmbedLambdaIamRole.addToPolicy(new iam.PolicyStatement({
         actions: ['bedrock:InvokeModel'],
         resources: [`arn:aws:bedrock:${this.region}::foundation-model/amazon.titan-embed-text-v2:0`],
       }));
-      
-      // create a log group
-      const importDatalogGroup = new cdk.aws_logs.LogGroup(this, 'importDatalogGroup', {
-        removalPolicy: cdk.RemovalPolicy.DESTROY,
-        retention: cdk.aws_logs.RetentionDays.ONE_DAY,
-        logGroupName: 'importDatalogGroup'
+      const generateEmbeddingsFunction = new cdk.aws_lambda.DockerImageFunction(this, 'generateEmbeddingsFunction', {
+        role: genEmbedLambdaIamRole,
+        memorySize: 4096,
+        timeout: cdk.Duration.seconds(600),
+        code: cdk.aws_lambda.DockerImageCode.fromImageAsset(path.join(__dirname, '../assets/lambda/generate_embeddings')),
+        environment: {
+          'INPUT_BUCKET_URL': salesData.s3ObjectUrl,
+          'BUCKET_NAME': salesData.s3BucketName,
+          'EMBEDDINGS_CSV_NAME': embeddings_csv_name,
+          'CSV_NAME': csv_name
+        },
       });
 
-      // create a task definition for importing data from s3 into the database
-      const importDataTaskDefinition = new ecs.FargateTaskDefinition(this, 'ImportDataTaskDefinition', {
-        memoryLimitMiB: 4096,
-        cpu: 2048,
-        runtimePlatform:{
-            cpuArchitecture: ecs.CpuArchitecture.X86_64,
-            operatingSystemFamily: ecs.OperatingSystemFamily.LINUX
-        }
+
+      // create a log group for import data function
+      const importDataLogGroup = new logs.LogGroup(this, 'LambdaLogGroup', {
+        logGroupName: '/aws/lambda/import_data_function',
+        removalPolicy: cdk.RemovalPolicy.DESTROY,
       });
-      // add a container image to the task definition
-      const ImpContainerImage = ecs.ContainerImage.fromAsset(path.join(__dirname, '../assets/import-data'));
-      importDataTaskDefinition.addContainer('ImportDataContainer', {
-        logging: ecs.LogDriver.awsLogs({
-          streamPrefix: 'ImportData',
-          logGroup:importDatalogGroup 
-        }),
-        image: ImpContainerImage,
+    
+      // create lambda Iam Role for the import function
+      const importLambdaIamRole = new iam.Role(this, 'LambdaIamRole', {
+        assumedBy: new iam.ServicePrincipal('lambda.amazonaws.com'),
+      });
+      importLambdaIamRole.addToPolicy(new iam.PolicyStatement({
+        actions: ['logs:CreateLogGroup', 'logs:CreateLogStream', 'logs:PutLogEvents'],
+        resources: [importDataLogGroup.logGroupArn],
+      }));
+      importLambdaIamRole.addToPolicy(new iam.PolicyStatement({
+        actions: ['s3:GetObject', 's3:ListBucket'],
+        resources: [
+          assetBucket.bucketArn, 
+          `${assetBucket.bucketArn}/${csv_name}`,
+          `${assetBucket.bucketArn}/${embeddings_csv_name}`,
+        ],
+      }));
+      importLambdaIamRole.addToPolicy(new iam.PolicyStatement({
+        actions: ['rds-data:ExecuteStatement'],
+        resources: [props.clusterArn],
+      }));
+      importLambdaIamRole.addToPolicy(new iam.PolicyStatement({
+        actions: ['secretsmanager:GetSecretValue'],
+        resources: [props.secretArn],
+      }));
+
+      // create a lambda function with a docker runtime
+      const lambdaImportFunction = new cdk.aws_lambda.DockerImageFunction(this, 'ImportDataFunction', {
+        role: importLambdaIamRole,
+        memorySize: 4096,
+        timeout: cdk.Duration.seconds(600),
+        code: cdk.aws_lambda.DockerImageCode.fromImageAsset(path.join(__dirname, '../assets/lambda/import_data')),
         environment: {
           'INPUT_BUCKET_URL': salesData.s3ObjectUrl,
           'BUCKET_NAME': salesData.s3BucketName,
@@ -120,69 +123,46 @@ export class ImportDataStack extends cdk.Stack {
           'SECRET_ARN':props.secretArn
         },
       });
-
       
-      // grant read and write permissions to ecs task to the asset bucket
-      importDataTaskDefinition.taskRole.addToPrincipalPolicy(new iam.PolicyStatement({
-        actions: [
-          's3:GetObject',
-          's3:ListBucket',
-        ],
-        effect: iam.Effect.ALLOW,
-        resources: [
-          assetBucket.bucketArn,
-          `${assetBucket.bucketArn}/*`
-        ]
-      }));
       
-      importDataTaskDefinition.taskRole.addToPrincipalPolicy(new iam.PolicyStatement({
-        actions: ['rds-data:ExecuteStatement'],
-        resources: [props.clusterArn],
-      }));
-      importDataTaskDefinition.taskRole.addToPrincipalPolicy(new iam.PolicyStatement({
-        actions: ['secretsmanager:GetSecretValue','secretsmanager:ListSecrets'],
-        resources: [props.secretArn],
-      }));
+      // const stpFnlogGroup = new logs.LogGroup(this, 'stpFnlogGroup');
 
-      const runGenEmbedTask = new tasks.EcsRunTask(this, 'RunFargateGen', {
-        integrationPattern: sfn.IntegrationPattern.RUN_JOB,
-        cluster,
-        taskDefinition:genEmbedTaskDefinition,
-        launchTarget: new tasks.EcsFargateLaunchTarget(),
-        propagatedTagSource: ecs.PropagatedTagSource.TASK_DEFINITION,
+      // create a new lambda inoke task for generating embeddings
+      const runGenEmbedTask = new tasks.LambdaInvoke(this, 'RunLambdaGen', {
+        lambdaFunction: generateEmbeddingsFunction,
       });
 
-      // create an ecs task for importData
-      const runImportDataTask = new tasks.EcsRunTask(this, 'RunFargateImportData', {
-        integrationPattern: sfn.IntegrationPattern.RUN_JOB,
-        cluster,
-        taskDefinition:importDataTaskDefinition,
-        launchTarget: new tasks.EcsFargateLaunchTarget(),
-        propagatedTagSource: ecs.PropagatedTagSource.TASK_DEFINITION,
+      // create a new lambda inoke task for importing data
+      const runImportTask = new tasks.LambdaInvoke(this, 'RunLambdaImport', {
+        lambdaFunction: lambdaImportFunction,
       });
 
-      const stpFnlogGroup = new logs.LogGroup(this, 'stpFnlogGroup');
+      // create a state machine role to acess the lambda functions
+      const stateMachineRole = new iam.Role(this, 'StateMachineRole', {
+        assumedBy: new iam.ServicePrincipal('states.amazonaws.com'),
+      });
+      stateMachineRole.addToPolicy(new iam.PolicyStatement({
+        actions: ['lambda:InvokeFunction'],
+        resources: [generateEmbeddingsFunction.functionArn, lambdaImportFunction.functionArn],
+      }));
+      stateMachineRole.withoutPolicyUpdates();
 
-      const importDataFunction = new sfn.StateMachine(this, 'StateMachine', {
+      const importDataStepFunction = new sfn.StateMachine(this, 'StateMachine', {
+        role: stateMachineRole,
         definitionBody: sfn.DefinitionBody.fromChainable(
-          runGenEmbedTask
-            .next(runImportDataTask)
+          runGenEmbedTask.next(runImportTask)
         ),
-        tracingEnabled:true,
-        logs: {
-          destination: stpFnlogGroup,
-          level: sfn.LogLevel.ALL,
-        },
       });
       
       // output the state function arn
-      new cdk.CfnOutput(this, 'StateFunctionArn', { value: importDataFunction.stateMachineArn });
+      new cdk.CfnOutput(this, 'StateFunctionArn', { value: importDataStepFunction.stateMachineArn });
 
       NagSuppressions.addStackSuppressions(this,
         
         [
-          { id: 'AwsSolutions-ECS2', reason: 'S3 bucket name and url passed are dynamic and caoonot be stored in key stores' },
-          { id: 'AwsSolutions-IAM5', reason: 'CDK used AWS Managed policies which have *'},
+          { id: 'AwsSolutions-IAM5', reason: 'State Machine introduces a * to a couple of functions'},
+          { id: 'AwsSolutions-SF1', reason: 'Not logging all Step Function events'},
+          { id: 'AwsSolutions-SF2', reason: 'Not enabling X-ray tracing in Step Function'},
           { id: 'AwsSolutions-VPC7', reason: 'Flow log not enabled to avoid un-necessary costs'}
         ]
       );
