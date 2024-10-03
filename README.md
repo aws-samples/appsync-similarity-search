@@ -2,6 +2,9 @@
 
 This project implements search similarity with AWS AppSync as the frontend with PostGres RDS Datasource. We use the PostGreSQL PGVector extension for storing embeddings of records.
 
+**Warning**
+Please note that the code here for the purpose of demonstration and should not be used in production.
+
 ## Dataset
 
 The example dataset to use is an Amazon Product dataset. It has the following schema
